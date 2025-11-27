@@ -18,10 +18,10 @@ export const env = {
 
   // Genuka OAuth
   genuka: {
-    url: process.env.GENUKA_URL || 'https://api.genuka.com',
+    url: process.env.GENUKA_URL,
     clientId: process.env.GENUKA_CLIENT_ID || '',
     clientSecret: process.env.GENUKA_CLIENT_SECRET || '',
-    redirectUri: process.env.GENUKA_REDIRECT_URI || 'http://localhost:4000/api/auth/callback'
+    redirectUri: process.env.GENUKA_REDIRECT_URI
   },
 } as const;
 

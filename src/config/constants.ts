@@ -9,11 +9,6 @@ export const DB_DEFAULTS = {
   TIMEOUT: 10000,
 } as const;
 
-export const ROUTES = {
-  AUTH_CALLBACK: "/api/auth/callback",
-  AUTH_WEBHOOK: "/api/auth/webhook",
-} as const;
-
 export const WEBHOOK_EVENTS = {
   // Company events
   COMPANY_UPDATED: "company.updated",

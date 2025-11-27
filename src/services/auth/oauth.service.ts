@@ -16,7 +16,7 @@ export interface OAuthCallbackParams {
 
 export class OAuthService {
   async handleCallback(params: OAuthCallbackParams) {
-    const isValidHmac = verifyHmac(
+    const isValidHmac = await verifyHmac(
       {
         code: params.code,
         company_id: params.companyId,

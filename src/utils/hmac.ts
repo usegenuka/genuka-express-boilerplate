@@ -1,54 +1,50 @@
-import { createHmac, timingSafeEqual } from 'crypto';
-import { env } from '../config/env.js';
+import { env } from "@/config/env";
 
-interface HmacParams {
+export const generateHmac = async (params: {
   code: string;
   company_id: string;
   redirect_to: string;
   timestamp: string;
-}
+}): Promise<string> => {
+  const sortedKeys = Object.keys(params).sort();
 
-/**
- * Generate HMAC signature for OAuth callback validation
- * @param params - OAuth callback parameters
- * @returns HMAC signature as hex string
- */
-export function generateHmac(params: HmacParams): string {
-  // Sort parameters alphabetically by key
-  const sortedKeys = Object.keys(params).sort() as (keyof HmacParams)[];
-
-  // Build query string with URL encoding
   const queryString = sortedKeys
-    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
-    .join('&');
+    .map(
+      (key) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(
+          params[key as keyof typeof params]
+        )}`
+    )
+    .join("&");
 
-  // Generate HMAC-SHA256
-  const hmac = createHmac('sha256', env.genuka.clientSecret);
-  hmac.update(queryString);
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(env.genuka.clientSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
 
-  return hmac.digest('hex');
-}
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(queryString)
+  );
+  return Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+};
 
-/**
- * Verify HMAC signature using constant-time comparison
- * @param params - OAuth callback parameters
- * @param receivedHmac - HMAC signature received from request
- * @returns true if HMAC is valid
- */
-export function verifyHmac(params: HmacParams, receivedHmac: string): boolean {
-  const expectedHmac = generateHmac(params);
-
-  // Use constant-time comparison to prevent timing attacks
-  try {
-    const expectedBuffer = Buffer.from(expectedHmac, 'hex');
-    const receivedBuffer = Buffer.from(receivedHmac, 'hex');
-
-    if (expectedBuffer.length !== receivedBuffer.length) {
-      return false;
-    }
-
-    return timingSafeEqual(expectedBuffer, receivedBuffer);
-  } catch {
-    return false;
-  }
-}
+export const verifyHmac = async (
+  params: {
+    code: string;
+    company_id: string;
+    redirect_to: string;
+    timestamp: string;
+  },
+  receivedHmac: string
+): Promise<boolean> => {
+  const expectedHmac = await generateHmac(params);
+  return expectedHmac === receivedHmac;
+};
