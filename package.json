@@ -1,8 +1,19 @@
 {
   "name": "genuka-express-boilerplate",
-  "module": "index.ts",
+  "version": "1.0.0",
+  "description": "Express.js boilerplate for Genuka OAuth integration with TypeScript and Prisma",
+  "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "db:generate": "bunx prisma generate",
+    "db:push": "bunx prisma db push",
+    "db:migrate": "bunx prisma migrate dev",
+    "db:migrate:deploy": "bunx prisma migrate deploy",
+    "db:studio": "bunx prisma studio"
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/express": "^5.0.5",
