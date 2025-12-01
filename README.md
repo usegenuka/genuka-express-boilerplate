@@ -145,32 +145,42 @@ bun run db:studio        # Open Prisma Studio
 
 ## Authentication
 
-### Session Management
+### Double Cookie Security Pattern
 
-After successful OAuth authentication, a JWT session token is created and stored in an HTTP-only cookie. The session is valid for 7 hours.
+This boilerplate uses a secure **double cookie pattern** for session management:
+
+| Cookie | Duration | Purpose |
+|--------|----------|---------|
+| `session` | 7 hours | Access protected routes |
+| `refresh_session` | 30 days | Securely refresh expired sessions |
+
+Both cookies are **HTTP-only** (not accessible via JavaScript) and **signed JWT** (cannot be forged).
 
 ### Session Refresh (No Reinstall Required)
 
-When the JWT session expires, the client can refresh it without requiring the user to reinstall the app:
+When the session expires, the client can securely refresh it:
 
 ```
 POST /api/auth/refresh
-Content-Type: application/json
-
-{ "companyId": "company-uuid" }
+// No body required! The refresh_session cookie is sent automatically
 ```
 
-**How it works securely:**
-1. Client sends only `companyId` (public identifier)
-2. Server retrieves `refresh_token` from database (never exposed to client)
-3. Server calls Genuka API with `refresh_token` + `client_secret`
-4. Genuka validates and returns new tokens
-5. Server updates tokens in database and creates new session
+**Security Flow:**
+1. Client calls `POST /api/auth/refresh` with no body
+2. Server reads `refresh_session` cookie (HTTP-only, inaccessible to JS)
+3. Server verifies the JWT signature (cannot be forged)
+4. Server extracts `companyId` from the verified JWT
+5. Server retrieves Genuka `refresh_token` from database
+6. Server calls Genuka API with `refresh_token` + `client_secret`
+7. Server updates tokens in database
+8. Server creates new `session` + `refresh_session` cookies
 
-This is secure because:
-- The `refresh_token` is never sent to or stored on the client
-- Token refresh requires `client_secret` (server-side only)
-- Only previously authenticated companies can refresh
+**Why this is secure:**
+- No data sent in request body (nothing to forge)
+- `companyId` comes from a signed JWT cookie (tamper-proof)
+- Cookies are HTTP-only (not accessible via JavaScript/XSS)
+- Genuka `refresh_token` is never exposed to the client
+- Genuka API validates with `client_secret` (server-side only)
 
 ### Protecting Routes
 

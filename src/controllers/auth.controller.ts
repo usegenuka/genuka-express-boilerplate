@@ -4,14 +4,12 @@ import { companyDBService } from "@/services/database/company.service.js";
 import { genukaApiService } from "@/services/genuka/api.service.js";
 import type { Request, Response } from "express";
 
-/**
- * Auth Controller
- * Handles authentication-related endpoints
- */
 export class AuthController {
   /**
-   * GET /api/auth/me
-   * Get the currently authenticated company
+   *
+   * @param req
+   * @param res
+   * @returns
    */
   async me(req: Request, res: Response): Promise<void> {
     try {
@@ -45,8 +43,9 @@ export class AuthController {
   }
 
   /**
-   * POST /api/auth/logout
-   * Logout the current user by destroying the session
+   *
+   * @param req
+   * @param res
    */
   async logout(req: Request, res: Response): Promise<void> {
     try {
@@ -65,8 +64,10 @@ export class AuthController {
   }
 
   /**
-   * GET /api/auth/check
    * Check if the current session is valid
+   *
+   * @param req
+   * @param res
    */
   async check(req: Request, res: Response): Promise<void> {
     try {
@@ -84,25 +85,11 @@ export class AuthController {
   }
 
   /**
-   * POST /api/auth/refresh
    * Securely refresh session using the refresh_session cookie (double cookie pattern)
    *
-   * Security Flow:
-   * 1. Client sends POST /api/auth/refresh (NO BODY REQUIRED)
-   * 2. Server reads "refresh_session" cookie (HTTP-only, not accessible via JS)
-   * 3. Server verifies the JWT refresh token (signed, not forgeable)
-   * 4. Server extracts companyId from the verified JWT
-   * 5. Server retrieves Genuka refresh_token from database
-   * 6. Server calls Genuka API to get new access_token
-   * 7. Server updates tokens in database
-   * 8. Server creates new session + refresh cookies
-   *
-   * This is secure because:
-   * - No data is sent in the request body
-   * - companyId comes from a signed JWT cookie (cannot be forged)
-   * - Cookies are HTTP-only (not accessible via JavaScript)
-   * - Genuka refresh_token is never exposed to the client
-   * - Genuka API validates with client_secret (server-side only)
+   * @param req
+   * @param res
+   * @returns
    */
   async refresh(req: Request, res: Response): Promise<void> {
     try {
@@ -112,7 +99,8 @@ export class AuthController {
       if (!companyId) {
         res.status(HTTP_STATUS.UNAUTHORIZED).json({
           error: "Unauthorized",
-          message: "Invalid or expired refresh token. Please reinstall the app.",
+          message:
+            "Invalid or expired refresh token. Please reinstall the app.",
         });
         return;
       }
@@ -123,7 +111,8 @@ export class AuthController {
       if (!company || !company.refreshToken) {
         res.status(HTTP_STATUS.UNAUTHORIZED).json({
           error: "Unauthorized",
-          message: "Company not found or no refresh token available. Please reinstall the app.",
+          message:
+            "Company not found or no refresh token available. Please reinstall the app.",
         });
         return;
       }
