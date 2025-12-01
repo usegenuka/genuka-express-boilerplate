@@ -35,9 +35,14 @@ export class OAuthService {
       throw new Error("Request expired");
     }
 
-    // Exchange code for access token
-    const accessToken = await genukaApiService.exchangeCodeForToken(
+    // Exchange code for tokens (access_token + refresh_token)
+    const tokenResponse = await genukaApiService.exchangeCodeForToken(
       params.code
+    );
+
+    // Calculate token expiration date
+    const tokenExpiresAt = new Date(
+      Date.now() + tokenResponse.expires_in_minutes * 60 * 1000
     );
 
     // Fetch company information from Genuka
@@ -50,7 +55,9 @@ export class OAuthService {
       name: companyInfo.name,
       description: companyInfo.description || null,
       authorizationCode: params.code,
-      accessToken: accessToken,
+      accessToken: tokenResponse.access_token,
+      refreshToken: tokenResponse.refresh_token,
+      tokenExpiresAt: tokenExpiresAt,
       logoUrl: companyInfo.logoUrl || null,
       phone: companyInfo.metadata?.contact || null,
     };

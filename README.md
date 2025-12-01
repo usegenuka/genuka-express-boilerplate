@@ -129,6 +129,7 @@ bun run db:studio        # Open Prisma Studio
 | GET | `/api/auth/callback` | No | OAuth callback handler |
 | POST | `/api/auth/webhook` | No | Webhook event handler |
 | GET | `/api/auth/check` | No | Check if authenticated |
+| POST | `/api/auth/refresh` | No | Refresh expired session |
 | GET | `/api/auth/me` | Yes | Get current company info |
 | POST | `/api/auth/logout` | Yes | Logout and destroy session |
 
@@ -137,7 +138,7 @@ bun run db:studio        # Open Prisma Studio
 1. User clicks "Install App" in Genuka
 2. Genuka redirects to `/api/auth/callback` with authorization code
 3. App validates HMAC signature and timestamp
-4. App exchanges code for access token
+4. App exchanges code for tokens (`access_token` + `refresh_token`)
 5. Company info is fetched and stored in database
 6. **JWT session is created and stored in HTTP-only cookie**
 7. User is redirected to dashboard
@@ -147,6 +148,29 @@ bun run db:studio        # Open Prisma Studio
 ### Session Management
 
 After successful OAuth authentication, a JWT session token is created and stored in an HTTP-only cookie. The session is valid for 7 hours.
+
+### Session Refresh (No Reinstall Required)
+
+When the JWT session expires, the client can refresh it without requiring the user to reinstall the app:
+
+```
+POST /api/auth/refresh
+Content-Type: application/json
+
+{ "companyId": "company-uuid" }
+```
+
+**How it works securely:**
+1. Client sends only `companyId` (public identifier)
+2. Server retrieves `refresh_token` from database (never exposed to client)
+3. Server calls Genuka API with `refresh_token` + `client_secret`
+4. Genuka validates and returns new tokens
+5. Server updates tokens in database and creates new session
+
+This is secure because:
+- The `refresh_token` is never sent to or stored on the client
+- Token refresh requires `client_secret` (server-side only)
+- Only previously authenticated companies can refresh
 
 ### Protecting Routes
 
@@ -193,6 +217,116 @@ sessionService.destroySession(res);
 | `hmac` | HMAC signature |
 | `redirect_to` | Redirect URL after success |
 
+## Client Usage (Frontend Integration)
+
+This API uses HTTP-only cookies for session management. Here's how to integrate with a frontend client:
+
+### JavaScript/TypeScript Client Example
+
+```typescript
+const API_URL = 'http://localhost:4000';
+
+// Store companyId locally (safe - it's a public identifier)
+let companyId: string | null = localStorage.getItem('companyId');
+
+// Check if authenticated
+async function checkAuth(): Promise<boolean> {
+  const res = await fetch(`${API_URL}/api/auth/check`, {
+    credentials: 'include', // Important: send cookies
+  });
+  const data = await res.json();
+  return data.authenticated;
+}
+
+// Get current company info
+async function getMe() {
+  const res = await fetch(`${API_URL}/api/auth/me`, {
+    credentials: 'include',
+  });
+
+  if (res.status === 401) {
+    // Session expired, try to refresh
+    return await refreshSession();
+  }
+
+  return res.json();
+}
+
+// Refresh expired session
+async function refreshSession() {
+  if (!companyId) {
+    throw new Error('No companyId stored. User needs to reinstall app.');
+  }
+
+  const res = await fetch(`${API_URL}/api/auth/refresh`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ companyId }),
+  });
+
+  if (!res.ok) {
+    // Refresh token invalid, need to reinstall
+    localStorage.removeItem('companyId');
+    throw new Error('Session expired. Please reinstall the app.');
+  }
+
+  return res.json();
+}
+
+// Logout
+async function logout() {
+  await fetch(`${API_URL}/api/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  localStorage.removeItem('companyId');
+}
+
+// After OAuth callback, store the companyId
+function onAuthCallback(companyId: string) {
+  localStorage.setItem('companyId', companyId);
+}
+```
+
+### React Hook Example
+
+```typescript
+import { useState, useEffect } from 'react';
+
+function useAuth() {
+  const [company, setCompany] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    async function init() {
+      try {
+        const isAuth = await checkAuth();
+        if (isAuth) {
+          const data = await getMe();
+          setCompany(data);
+        }
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    init();
+  }, []);
+
+  return { company, loading, error, logout, refreshSession };
+}
+```
+
+### Important Notes
+
+1. **Always use `credentials: 'include'`** - Required to send/receive HTTP-only cookies
+2. **CORS Configuration** - Ensure your API allows credentials from your frontend origin
+3. **Store only `companyId`** - Never store tokens on the client; they're in HTTP-only cookies
+4. **Handle 401 errors** - Always try to refresh before asking user to reinstall
+
 ## Webhook Events
 
 The boilerplate handles these webhook events:
@@ -231,7 +365,9 @@ private async handleOrderCreated(event: WebhookEvent): Promise<void> {
 | name | String | Company name |
 | description | Text | Company description |
 | logoUrl | String | Logo URL |
-| accessToken | Text | OAuth access token |
+| accessToken | Text | OAuth access token (JWT) |
+| refreshToken | Text | OAuth refresh token (for session renewal) |
+| tokenExpiresAt | DateTime | Access token expiration date |
 | authorizationCode | String | OAuth authorization code |
 | phone | String | Contact phone |
 | createdAt | DateTime | Created timestamp |

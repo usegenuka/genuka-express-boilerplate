@@ -3,16 +3,26 @@ import { companyDBService } from "@/services/database/company.service.js";
 import type { Request, Response } from "express";
 import { JWTPayload, SignJWT, jwtVerify } from "jose";
 
+// Cookie names
 const SESSION_COOKIE_NAME = "session";
+const REFRESH_COOKIE_NAME = "refresh_session";
+
+// Cookie durations
 const SESSION_MAX_AGE = 60 * 60 * 7; // 7 hours in seconds
+const REFRESH_MAX_AGE = 60 * 60 * 24 * 30; // 30 days in seconds
 
 interface SessionPayload extends JWTPayload {
   companyId: string;
+  type: "session" | "refresh";
 }
 
 /**
  * Session Service
- * Handles JWT session management for authenticated users
+ * Handles JWT session management with double cookie system for security
+ *
+ * Two cookies are used:
+ * - "session" (7h): For accessing protected routes
+ * - "refresh_session" (30d): For refreshing expired sessions securely
  */
 export class SessionService {
   private getSecret() {
@@ -20,28 +30,45 @@ export class SessionService {
   }
 
   /**
-   * Create a new session for a company
+   * Create both session and refresh cookies for a company
    */
   async createSession(companyId: string, res: Response): Promise<string> {
     const secret = this.getSecret();
+    const isProd = env.nodeEnv === "production";
 
-    const token = await new SignJWT({ companyId })
+    // Create session token (short-lived: 7h)
+    const sessionToken = await new SignJWT({ companyId, type: "session" })
       .setProtectedHeader({ alg: "HS256" })
       .setIssuedAt()
       .setExpirationTime("7h")
       .sign(secret);
 
-    const isProd = env.nodeEnv === "production";
+    // Create refresh token (long-lived: 30 days)
+    const refreshToken = await new SignJWT({ companyId, type: "refresh" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("30d")
+      .sign(secret);
 
-    res.cookie(SESSION_COOKIE_NAME, token, {
+    // Set session cookie (7h)
+    res.cookie(SESSION_COOKIE_NAME, sessionToken, {
       httpOnly: true,
       secure: isProd,
       sameSite: "lax",
-      maxAge: SESSION_MAX_AGE * 1000, // Convert to milliseconds
+      maxAge: SESSION_MAX_AGE * 1000,
       path: "/",
     });
 
-    return token;
+    // Set refresh cookie (30 days)
+    res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "lax",
+      maxAge: REFRESH_MAX_AGE * 1000,
+      path: "/",
+    });
+
+    return sessionToken;
   }
 
   /**
@@ -53,7 +80,12 @@ export class SessionService {
       const { payload } = await jwtVerify(token, secret);
       return payload as SessionPayload;
     } catch (error) {
-      console.error("JWT verification failed:", error);
+      // Don't log expected expiration errors
+      const isExpiredError =
+        error instanceof Error && error.message.includes("expired");
+      if (!isExpiredError) {
+        console.error("JWT verification failed:", error);
+      }
       return null;
     }
   }
@@ -63,6 +95,34 @@ export class SessionService {
    */
   getSessionToken(req: Request): string | null {
     return req.cookies?.[SESSION_COOKIE_NAME] || null;
+  }
+
+  /**
+   * Get the refresh token from request cookies
+   */
+  getRefreshToken(req: Request): string | null {
+    return req.cookies?.[REFRESH_COOKIE_NAME] || null;
+  }
+
+  /**
+   * Verify refresh token and return companyId
+   * This is used for secure session refresh
+   */
+  async verifyRefreshToken(req: Request): Promise<string | null> {
+    const token = this.getRefreshToken(req);
+
+    if (!token) {
+      return null;
+    }
+
+    const payload = await this.verifyJwt(token);
+
+    // Ensure it's a refresh token, not a session token
+    if (!payload || payload.type !== "refresh") {
+      return null;
+    }
+
+    return payload.companyId;
   }
 
   /**
@@ -77,7 +137,7 @@ export class SessionService {
 
     const payload = await this.verifyJwt(token);
 
-    if (!payload) {
+    if (!payload || payload.type !== "session") {
       return null;
     }
 
@@ -106,15 +166,18 @@ export class SessionService {
   }
 
   /**
-   * Destroy the session (logout)
+   * Destroy both session and refresh cookies (logout)
    */
   destroySession(res: Response): void {
-    res.clearCookie(SESSION_COOKIE_NAME, {
+    const cookieOptions = {
       httpOnly: true,
       secure: env.nodeEnv === "production",
-      sameSite: "lax",
+      sameSite: "lax" as const,
       path: "/",
-    });
+    };
+
+    res.clearCookie(SESSION_COOKIE_NAME, cookieOptions);
+    res.clearCookie(REFRESH_COOKIE_NAME, cookieOptions);
   }
 }
 

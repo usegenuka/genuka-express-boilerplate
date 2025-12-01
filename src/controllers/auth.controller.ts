@@ -1,7 +1,8 @@
-import type { Request, Response } from "express";
+import { HTTP_STATUS } from "@/config/constants.js";
 import { sessionService } from "@/services/auth/session.service.js";
 import { companyDBService } from "@/services/database/company.service.js";
-import { HTTP_STATUS } from "@/config/constants.js";
+import { genukaApiService } from "@/services/genuka/api.service.js";
+import type { Request, Response } from "express";
 
 /**
  * Auth Controller
@@ -84,33 +85,67 @@ export class AuthController {
 
   /**
    * POST /api/auth/refresh
-   * Refresh session using company ID (when session expired but company exists in DB)
-   * This avoids requiring re-installation of the app
+   * Securely refresh session using the refresh_session cookie (double cookie pattern)
+   *
+   * Security Flow:
+   * 1. Client sends POST /api/auth/refresh (NO BODY REQUIRED)
+   * 2. Server reads "refresh_session" cookie (HTTP-only, not accessible via JS)
+   * 3. Server verifies the JWT refresh token (signed, not forgeable)
+   * 4. Server extracts companyId from the verified JWT
+   * 5. Server retrieves Genuka refresh_token from database
+   * 6. Server calls Genuka API to get new access_token
+   * 7. Server updates tokens in database
+   * 8. Server creates new session + refresh cookies
+   *
+   * This is secure because:
+   * - No data is sent in the request body
+   * - companyId comes from a signed JWT cookie (cannot be forged)
+   * - Cookies are HTTP-only (not accessible via JavaScript)
+   * - Genuka refresh_token is never exposed to the client
+   * - Genuka API validates with client_secret (server-side only)
    */
   async refresh(req: Request, res: Response): Promise<void> {
     try {
-      const { companyId } = req.body;
+      // Verify the refresh token from HTTP-only cookie
+      const companyId = await sessionService.verifyRefreshToken(req);
 
       if (!companyId) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({
-          error: "Bad Request",
-          message: "companyId is required",
-        });
-        return;
-      }
-
-      // Check if company exists in database (was previously authenticated)
-      const company = await companyDBService.findByCompanyId(companyId);
-
-      if (!company || !company.accessToken) {
         res.status(HTTP_STATUS.UNAUTHORIZED).json({
           error: "Unauthorized",
-          message: "Company not found or not authenticated. Please reinstall the app.",
+          message: "Invalid or expired refresh token. Please reinstall the app.",
         });
         return;
       }
 
-      // Create new session
+      // Check if company exists in database with a Genuka refresh token
+      const company = await companyDBService.findByCompanyId(companyId);
+
+      if (!company || !company.refreshToken) {
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({
+          error: "Unauthorized",
+          message: "Company not found or no refresh token available. Please reinstall the app.",
+        });
+        return;
+      }
+
+      // Use Genuka refresh_token to get new tokens from Genuka API
+      const tokenResponse = await genukaApiService.refreshAccessToken(
+        company.refreshToken,
+      );
+
+      // Calculate new expiration date
+      const tokenExpiresAt = new Date(
+        Date.now() + tokenResponse.expires_in_minutes * 60 * 1000,
+      );
+
+      // Update Genuka tokens in database
+      await companyDBService.updateById(companyId, {
+        accessToken: tokenResponse.access_token,
+        refreshToken: tokenResponse.refresh_token,
+        tokenExpiresAt: tokenExpiresAt,
+      });
+
+      // Create new session + refresh cookies
       await sessionService.createSession(companyId, res);
 
       res.json({
@@ -124,9 +159,25 @@ export class AuthController {
       });
     } catch (error) {
       console.error("Session refresh error:", error);
-      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-        error: "Failed to refresh session",
-      });
+
+      // If refresh token is invalid/revoked, user needs to reinstall
+      const message =
+        error instanceof Error ? error.message : "Failed to refresh session";
+      const isTokenError =
+        message.includes("revoked") || message.includes("invalid");
+
+      res
+        .status(
+          isTokenError
+            ? HTTP_STATUS.UNAUTHORIZED
+            : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        )
+        .json({
+          error: isTokenError ? "Unauthorized" : "Server Error",
+          message: isTokenError
+            ? "Refresh token is invalid or revoked. Please reinstall the app."
+            : "Failed to refresh session",
+        });
     }
   }
 }

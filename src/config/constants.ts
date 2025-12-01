@@ -1,5 +1,6 @@
 export const OAUTH = {
   TOKEN_ENDPOINT: "/oauth/token",
+  REFRESH_ENDPOINT: "/oauth/refresh",
   GRANT_TYPE: "authorization_code",
   TIMESTAMP_TOLERANCE_MS: 5 * 60 * 1000, // 5 minutes
 } as const;

@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
+import { HTTP_STATUS } from "../config/constants.js";
 import { oauthService } from "../services/auth/oauth.service.js";
 import { sessionService } from "../services/auth/session.service.js";
-import { HTTP_STATUS } from "../config/constants.js";
 
 export class CallbackController {
   async handle(req: Request, res: Response): Promise<void> {
@@ -32,8 +32,12 @@ export class CallbackController {
       });
 
       // Create session for the authenticated company
-      await sessionService.createSession(result.companyId, res);
+      const tokenResponse = await sessionService.createSession(
+        result.companyId,
+        res,
+      );
 
+      console.log("token response", tokenResponse);
       const redirectUrl = decodeURIComponent(redirect_to as string);
 
       res.redirect(redirectUrl);

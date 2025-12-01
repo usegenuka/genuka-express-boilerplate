@@ -15,6 +15,9 @@ router.post("/webhook", (req, res) => webhookController.handle(req, res));
 // Auth check - public
 router.get("/check", (req, res) => authController.check(req, res));
 
+// Refresh session - public (uses companyId from body)
+router.post("/refresh", (req, res) => authController.refresh(req, res));
+
 // Get current user - protected
 router.get("/me", authMiddleware, (req, res) => authController.me(req, res));
 

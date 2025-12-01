@@ -8,6 +8,8 @@ export interface CompanyData {
   logoUrl: string | null;
   authorizationCode: string | null;
   accessToken: string | null;
+  refreshToken: string | null;
+  tokenExpiresAt: Date | null;
   phone: string | null;
 }
 
@@ -38,6 +40,8 @@ export class CompanyDBService {
         logoUrl: data.logoUrl,
         authorizationCode: data.authorizationCode,
         accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        tokenExpiresAt: data.tokenExpiresAt,
         phone: data.phone,
       },
       create: data,

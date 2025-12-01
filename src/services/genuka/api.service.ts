@@ -1,13 +1,24 @@
-import Genuka from "genuka-api";
-import { env } from "@/config/env.js";
 import { OAUTH } from "@/config/constants.js";
+import { env } from "@/config/env.js";
+import Genuka from "genuka-api";
+
+export interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in_minutes: number;
+}
 
 export class GenukaApiService {
   async initialize(companyId: string) {
     return await Genuka.initialize({ id: companyId });
   }
 
-  async exchangeCodeForToken(code: string): Promise<string> {
+  /**
+   * Exchange authorization code for tokens
+   * Returns both access_token and refresh_token
+   */
+  async exchangeCodeForToken(code: string): Promise<TokenResponse> {
     const tokenUrl = `${env.genuka.url}${OAUTH.TOKEN_ENDPOINT}`;
 
     const response = await fetch(tokenUrl, {
@@ -29,8 +40,34 @@ export class GenukaApiService {
       throw new Error(`Token exchange failed: ${response.status} ${errorText}`);
     }
 
-    const data = (await response.json()) as { access_token: string };
-    return data.access_token;
+    return (await response.json()) as TokenResponse;
+  }
+
+  /**
+   * Refresh access token using refresh_token
+   * This is the secure way to renew a session
+   */
+  async refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
+    const tokenUrl = `${env.genuka.url}${OAUTH.REFRESH_ENDPOINT}`;
+
+    const response = await fetch(tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        refresh_token: refreshToken,
+        client_id: env.genuka.clientId,
+        client_secret: env.genuka.clientSecret,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Token refresh failed: ${response.status} ${errorText}`);
+    }
+
+    return (await response.json()) as TokenResponse;
   }
 
   async getCompanyInfo(companyId: string) {
@@ -59,7 +96,7 @@ export class GenukaApiService {
   async post<T>(
     endpoint: string,
     accessToken: string,
-    data: unknown
+    data: unknown,
   ): Promise<T> {
     const url = `${env.genuka.url}${endpoint}`;
 
