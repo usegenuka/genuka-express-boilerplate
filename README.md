@@ -5,6 +5,8 @@ A production-ready Express.js boilerplate for integrating with the Genuka e-comm
 ## Features
 
 - **OAuth 2.0 Integration** - Complete OAuth flow with Genuka
+- **JWT Session Management** - Secure session handling with jose library
+- **Authentication Middleware** - Protected routes with JWT verification
 - **Webhook Handling** - Receive and process Genuka events
 - **Database Integration** - MySQL/MariaDB with Prisma ORM
 - **TypeScript** - Fully typed codebase
@@ -74,17 +76,23 @@ genuka-express-boilerplate/
 │   │   ├── env.ts              # Environment variables
 │   │   └── constants.ts        # App constants
 │   ├── controllers/
+│   │   ├── auth.controller.ts       # Auth endpoints (me, logout, check)
 │   │   ├── callback.controller.ts   # OAuth callback handler
 │   │   └── webhook.controller.ts    # Webhook event handler
+│   ├── middleware/
+│   │   └── auth.middleware.ts  # JWT authentication middleware
 │   ├── routes/
 │   │   └── auth.routes.ts      # Auth routes
 │   ├── services/
 │   │   ├── auth/
-│   │   │   └── oauth.service.ts     # OAuth business logic
+│   │   │   ├── oauth.service.ts     # OAuth business logic
+│   │   │   └── session.service.ts   # JWT session management
 │   │   ├── database/
 │   │   │   └── company.service.ts   # Company DB operations
 │   │   └── genuka/
 │   │       └── api.service.ts       # Genuka API client
+│   ├── types/
+│   │   └── express.d.ts        # Express type extensions
 │   ├── utils/
 │   │   ├── hmac.ts             # HMAC signature utilities
 │   │   └── prisma.ts           # Prisma client singleton
@@ -114,12 +122,15 @@ bun run db:studio        # Open Prisma Studio
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/` | API info |
-| GET | `/health` | Health check |
-| GET | `/api/auth/callback` | OAuth callback handler |
-| POST | `/api/auth/webhook` | Webhook event handler |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/` | No | API info |
+| GET | `/health` | No | Health check |
+| GET | `/api/auth/callback` | No | OAuth callback handler |
+| POST | `/api/auth/webhook` | No | Webhook event handler |
+| GET | `/api/auth/check` | No | Check if authenticated |
+| GET | `/api/auth/me` | Yes | Get current company info |
+| POST | `/api/auth/logout` | Yes | Logout and destroy session |
 
 ## OAuth Flow
 
@@ -128,7 +139,49 @@ bun run db:studio        # Open Prisma Studio
 3. App validates HMAC signature and timestamp
 4. App exchanges code for access token
 5. Company info is fetched and stored in database
-6. User is redirected to dashboard
+6. **JWT session is created and stored in HTTP-only cookie**
+7. User is redirected to dashboard
+
+## Authentication
+
+### Session Management
+
+After successful OAuth authentication, a JWT session token is created and stored in an HTTP-only cookie. The session is valid for 7 hours.
+
+### Protecting Routes
+
+Use the `authMiddleware` to protect your routes:
+
+```typescript
+import { authMiddleware } from "@/middleware/auth.middleware.js";
+
+// Protected route - requires authentication
+router.get("/protected", authMiddleware, (req, res) => {
+  // req.companyId is available here
+  res.json({ companyId: req.companyId });
+});
+```
+
+### Session Service Methods
+
+```typescript
+import { sessionService } from "@/services/auth/session.service.js";
+
+// Create a session (automatically sets cookie)
+await sessionService.createSession(companyId, res);
+
+// Get authenticated company from request
+const company = await sessionService.getAuthenticatedCompany(req);
+
+// Check if request is authenticated
+const isAuth = await sessionService.isAuthenticated(req);
+
+// Get company or throw error
+const company = await sessionService.requireAuth(req);
+
+// Destroy session (logout)
+sessionService.destroySession(res);
+```
 
 ### Callback Parameters
 

@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { oauthService } from "../services/auth/oauth.service.js";
-import { env } from "../config/env.js";
+import { sessionService } from "../services/auth/session.service.js";
 import { HTTP_STATUS } from "../config/constants.js";
 
 export class CallbackController {
@@ -23,13 +23,16 @@ export class CallbackController {
         return;
       }
 
-      await oauthService.handleCallback({
+      const result = await oauthService.handleCallback({
         code: code as string,
         companyId: company_id as string,
         timestamp: timestamp as string,
         hmac: hmac as string,
         redirectTo: redirect_to as string,
       });
+
+      // Create session for the authenticated company
+      await sessionService.createSession(result.companyId, res);
 
       const redirectUrl = decodeURIComponent(redirect_to as string);
 
